@@ -1,0 +1,281 @@
+// หนุมาน — Prisma schema
+// Data model covering diagnosis, certified therapists, bookings, payments
+// (Thai QR / card / government reimbursement), reviews, tips, coupons,
+// safety tracking, ads, dashboards and company commission.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  PATIENT
+  THERAPIST
+  ADMIN
+}
+
+enum Specialty {
+  OFFICE_SYNDROME
+  FROZEN_SHOULDER
+  TRIGGER_FINGER
+  PIRIFORMIS
+  HERNIATED_DISC
+  PARESIS_PARALYSIS
+  KNEE_OSTEOARTHRITIS
+  RELAXATION
+}
+
+enum ServiceMode {
+  HOME_VISIT
+  IN_CLINIC
+}
+
+enum BookingStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  THAI_QR
+  CREDIT_CARD
+  GOVERNMENT_REIMBURSEMENT
+}
+
+enum GovernmentScheme {
+  CIVIL_SERVANT
+  SOCIAL_SECURITY
+  UNIVERSAL_COVERAGE
+  REHAB_FUND
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REIMBURSEMENT_SUBMITTED
+  FAILED
+  REFUNDED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  role         Role     @default(PATIENT)
+  fullName     String
+  phone        String   @unique
+  email        String?  @unique
+  passwordHash String
+  // จุดพิกัดปัจจุบันของผู้ใช้ ใช้ค้นหมอนวดใกล้เคียง
+  lat          Float?
+  lng          Float?
+  createdAt    DateTime @default(now())
+
+  patientProfile   PatientProfile?
+  therapistProfile TherapistProfile?
+  bookings         Booking[]         @relation("PatientBookings")
+  reviews          Review[]
+  emergencyContacts EmergencyContact[]
+  couponWallet     CouponWallet[]
+  loyaltyPoints    Int               @default(0)
+}
+
+model PatientProfile {
+  id                String  @id @default(cuid())
+  user              User    @relation(fields: [userId], references: [id])
+  userId            String  @unique
+  nationalId        String? // เลขบัตรประชาชน (สำหรับสิทธิเบิกจ่าย)
+  defaultScheme     GovernmentScheme?
+}
+
+model TherapistProfile {
+  id            String      @id @default(cuid())
+  user          User        @relation(fields: [userId], references: [id])
+  userId        String      @unique
+  displayName   String
+  avatarEmoji   String?     @default("👩‍⚕️")
+  bio           String?
+  specialties   Specialty[]
+  yearsExp      Int         @default(0)
+
+  // การรับรองจากกระทรวงสาธารณสุข (สธ.)
+  mophCertified   Boolean  @default(false)
+  mophLicenseNo   String?
+  mophVerifiedAt  DateTime?
+
+  // พิกัดฐานที่ตั้ง + รัศมีบริการนวดถึงบ้าน
+  baseLat       Float?
+  baseLng       Float?
+  serviceRadiusKm Int      @default(10)
+
+  ratingAvg     Float       @default(0)
+  reviewCount   Int         @default(0)
+
+  services      TherapistService[]
+  bookings      Booking[]   @relation("TherapistBookings")
+  reviews       Review[]
+  payouts       Payout[]
+}
+
+// บริการที่หมอกำหนดราคาเอง
+model TherapistService {
+  id           String           @id @default(cuid())
+  therapist    TherapistProfile @relation(fields: [therapistId], references: [id])
+  therapistId  String
+  title        String           // e.g. "นวดคลายออฟฟิศซินโดรม 60 นาที"
+  specialty    Specialty
+  durationMin  Int
+  price        Int              // ราคาที่หมอกำหนดเอง (บาท)
+  active       Boolean          @default(true)
+
+  bookings     Booking[]
+}
+
+model EmergencyContact {
+  id        String  @id @default(cuid())
+  user      User    @relation(fields: [userId], references: [id])
+  userId    String
+  name      String
+  phone     String
+}
+
+model Booking {
+  id           String        @id @default(cuid())
+  patient      User          @relation("PatientBookings", fields: [patientId], references: [id])
+  patientId    String
+  therapist    TherapistProfile @relation("TherapistBookings", fields: [therapistId], references: [id])
+  therapistId  String
+  service      TherapistService @relation(fields: [serviceId], references: [id])
+  serviceId    String
+
+  mode         ServiceMode
+  scheduledAt  DateTime
+  addressText  String?       // ที่อยู่นวดถึงบ้าน
+  lat          Float?
+  lng          Float?
+
+  status       BookingStatus @default(PENDING_PAYMENT)
+
+  servicePrice Int           // snapshot ของราคา
+  travelFee    Int           @default(0)
+  discount     Int           @default(0)
+  tipAmount    Int           @default(0)
+  total        Int           // servicePrice + travelFee - discount + tip
+
+  couponId     String?
+  coupon       Coupon?       @relation(fields: [couponId], references: [id])
+
+  payment      Payment?
+  review       Review?
+  safetySession SafetySession?
+
+  createdAt    DateTime      @default(now())
+}
+
+model Payment {
+  id             String         @id @default(cuid())
+  booking        Booking        @relation(fields: [bookingId], references: [id])
+  bookingId      String         @unique
+  method         PaymentMethod
+  status         PaymentStatus  @default(PENDING)
+  amount         Int
+
+  // Thai QR
+  qrPayload      String?
+  // Card gateway
+  gatewayRef     String?
+  // Government reimbursement
+  scheme         GovernmentScheme?
+  claimRef       String?
+
+  // การกระจายเงิน
+  commissionRate Float          @default(0.15)
+  commissionAmount Int          @default(0) // เข้าบริษัท
+  therapistNet   Int            @default(0) // ยอดสุทธิถึงหมอ
+
+  paidAt         DateTime?
+  createdAt      DateTime       @default(now())
+}
+
+model Review {
+  id           String           @id @default(cuid())
+  booking      Booking          @relation(fields: [bookingId], references: [id])
+  bookingId    String           @unique
+  author       User             @relation(fields: [authorId], references: [id])
+  authorId     String
+  therapist    TherapistProfile @relation(fields: [therapistId], references: [id])
+  therapistId  String
+  rating       Int              // 1-5
+  comment      String?
+  createdAt    DateTime         @default(now())
+}
+
+model Coupon {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  titleTh      String
+  // ส่วนลด: เลือกอย่างใดอย่างหนึ่ง
+  percentOff   Int?     // เช่น 15 = 15%
+  amountOff    Int?     // เช่น 100 = 100 บาท
+  minSpend     Int      @default(0)
+  pointCost    Int?     // แลกด้วยแต้มสะสม
+  expiresAt    DateTime?
+  active       Boolean  @default(true)
+
+  wallets      CouponWallet[]
+  bookings     Booking[]
+}
+
+model CouponWallet {
+  id        String  @id @default(cuid())
+  user      User    @relation(fields: [userId], references: [id])
+  userId    String
+  coupon    Coupon  @relation(fields: [couponId], references: [id])
+  couponId  String
+  used      Boolean @default(false)
+
+  @@unique([userId, couponId])
+}
+
+// ระบบติดตามความปลอดภัย + ส่งพิกัดที่นวด
+model SafetySession {
+  id           String   @id @default(cuid())
+  booking      Booking  @relation(fields: [bookingId], references: [id])
+  bookingId    String   @unique
+  active       Boolean  @default(true)
+  lat          Float?
+  lng          Float?
+  sharedWith   String[] // รายชื่อ/เบอร์ผู้ติดต่อฉุกเฉินที่แชร์พิกัด
+  sosTriggered Boolean  @default(false)
+  startedAt    DateTime @default(now())
+  endedAt      DateTime?
+}
+
+// ระบบโฆษณา
+model Ad {
+  id         String   @id @default(cuid())
+  titleTh    String
+  bodyTh     String?
+  imageUrl   String?
+  targetUrl  String?
+  placement  String   // "home" | "list" | "banner"
+  active     Boolean  @default(true)
+  impressions Int     @default(0)
+  clicks     Int      @default(0)
+  createdAt  DateTime @default(now())
+}
+
+// การจ่ายเงินคืนหมอ (หลังหักคอมมิชชั่น)
+model Payout {
+  id           String           @id @default(cuid())
+  therapist    TherapistProfile @relation(fields: [therapistId], references: [id])
+  therapistId  String
+  amount       Int
+  periodStart  DateTime
+  periodEnd    DateTime
+  createdAt    DateTime         @default(now())
+}

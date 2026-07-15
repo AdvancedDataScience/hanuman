@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "หนุมาน",
+    "slug": "hanuman",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "platforms": ["ios", "android"],
+    "scheme": "hanuman",
+    "userInterfaceStyle": "light",
+    "splash": { "backgroundColor": "#B4232A" },
+    "ios": { "supportsTablet": true, "bundleIdentifier": "com.hanuman.app" },
+    "android": { "package": "com.hanuman.app" }
+  }
+}

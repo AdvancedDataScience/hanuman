@@ -1,0 +1,23 @@
+{
+  "name": "hanuman",
+  "version": "0.1.0",
+  "private": true,
+  "description": "หนุมาน — แพลตฟอร์มจับคู่ผู้ป่วยกับหมอนวดแผนไทยที่ได้รับการรับรอง (web + iOS + Android)",
+  "workspaces": [
+    "shared",
+    "backend",
+    "web"
+  ],
+  "scripts": {
+    "dev:backend": "npm --workspace backend run dev",
+    "dev:web": "npm --workspace web run dev",
+    "dev:mobile": "npm --workspace mobile run start",
+    "db:up": "docker compose up -d",
+    "db:migrate": "npm --workspace backend run prisma:migrate",
+    "db:seed": "npm --workspace backend run seed",
+    "build:shared": "npm --workspace shared run build"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
